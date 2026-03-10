@@ -3,7 +3,7 @@
   "listen_port": 8888,
   "autostart": false,
   "frp": {
-    "frpc_path": "C:/Users/zhou/xwechat_files/wxid_muxyumf4sm6c22_1201/msg/file/2025-11/11/2025-11-04-19-31-58-frp-frp_0.64.0_windows_amd64.zip.1/frp_0.64.0_windows_amd64/frpc.exe",
+    "frpc_path": "E:/360MoveData/Users/Administrator/Desktop/远程影刀/frpc.exe",
     "configs": {
       "9bkh6drd": {
         "server_addr": "117.72.35.239",
@@ -16,5 +16,11 @@
         "remote_port": 6000
       }
     }
+  },
+  "ai": {
+    "api_url": "https://ark.cn-beijing.volces.com/api/v3/responses",
+    "api_key": "96d739dd-5f53-4a6d-b89d-1779f27be846",
+    "model": "doubao-seed-2-0-pro-260215",
+    "prompt": "影刀运行什么项目？请分析这张截图，告诉我影刀正在运行什么项目，运行了多长时间，以及当前的运行状态。"
   }
 }

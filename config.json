@@ -1,0 +1,20 @@
+{
+  "bat_folder": "C:/Users/zhou/Desktop/测试22/新建文件夹/632882470291922946",
+  "listen_port": 8888,
+  "autostart": false,
+  "frp": {
+    "frpc_path": "C:/Users/zhou/xwechat_files/wxid_muxyumf4sm6c22_1201/msg/file/2025-11/11/2025-11-04-19-31-58-frp-frp_0.64.0_windows_amd64.zip.1/frp_0.64.0_windows_amd64/frpc.exe",
+    "configs": {
+      "9bkh6drd": {
+        "server_addr": "117.72.35.239",
+        "server_port": 7000,
+        "token": "60d8a83c544e6168db",
+        "type": "tcp",
+        "name": "9bkh6drd",
+        "local_ip": "127.0.0.1",
+        "local_port": 8888,
+        "remote_port": 6000
+      }
+    }
+  }
+}

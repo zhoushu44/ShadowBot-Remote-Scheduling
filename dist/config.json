@@ -1,0 +1,15 @@
+{
+  "bat_folder": "E:/360MoveData/Users/Administrator/Desktop/远程影刀",
+  "listen_port": 8888,
+  "autostart": false,
+  "frp": {
+    "frpc_path": "E:/360MoveData/Users/Administrator/Desktop/远程影刀/frpc.exe",
+    "configs": {}
+  },
+  "ai": {
+    "api_url": "",
+    "api_key": "",
+    "model": "",
+    "prompt": "请分析这张截图，描述当前屏幕上显示的内容和进度状态。"
+  }
+}

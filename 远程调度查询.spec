@@ -1,36 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""
-远程调度查询 - PyInstaller配置文件
-"""
 
 a = Analysis(
-    ['11.py'],
-    pathex='.',
+    ['mian.py'],
+    pathex=[],
     binaries=[],
     datas=[],
-    name='远程调度查询',
-    appversion='1.0.0',
-    description='远程调度查询工具 - 通过AI识别影刀运行状态',
-    icon=None,
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    distpath='dist',
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
     optimize=0,
 )
+pyz = PYZ(a.pure)
 
 exe = EXE(
+    pyz,
     a.scripts,
     a.binaries,
-    a.zipfiles,
     a.datas,
     [],
     name='远程调度查询',
@@ -38,10 +26,12 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
-    icon=None,
+    entitlements_file=None,
 )

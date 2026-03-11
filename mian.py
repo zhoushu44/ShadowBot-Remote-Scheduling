@@ -45,6 +45,15 @@ except ImportError:
     HAS_PIL = False
     print('警告：未安装 PIL，无法使用截图功能，请运行: pip install Pillow')
 
+# 尝试导入 pyautogui 用于图片识别和点击
+try:
+    import pyautogui
+    HAS_PYAUTOGUI = True
+    pyautogui.PAUSE = 0.5
+except ImportError:
+    HAS_PYAUTOGUI = False
+    print('警告：未安装 pyautogui，无法使用图片点击功能，请运行: pip install pyautogui opencv-python')
+
 # ========== 默认配置 ==========
 DEFAULT_BAT_FOLDER = r'D:\WebhookBats'
 DEFAULT_LISTEN_PORT = 8888
@@ -116,6 +125,28 @@ def run_bat(path: str):
         logging.info('bat 已启动：%s', path)
     except Exception:
         logging.error('启动失败：\n%s', traceback.format_exc())
+
+def get_image_path(image_name: str) -> str:
+    """获取图片路径，优先使用内置图片"""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        
+        builtin_path = os.path.join(base_path, 'bat', image_name)
+        if os.path.isfile(builtin_path):
+            return builtin_path
+    except Exception:
+        pass
+    
+    bat_folder = get_bat_folder()
+    if bat_folder and os.path.isdir(bat_folder):
+        external_path = os.path.join(bat_folder, image_name)
+        if os.path.isfile(external_path):
+            return external_path
+    
+    return ''
 
 def capture_screenshot() -> str:
     """截图并返回 base64 编码的图片"""
@@ -377,6 +408,159 @@ def webhook():
     run_bat(bat_path)
     return jsonify({"code": 0, "msg": f"{key}.bat 已触发"}), 200
 
+@app.route('/click_image', methods=['POST'])
+def click_image():
+    """点击屏幕上的图片"""
+    if not HAS_PYAUTOGUI:
+        return jsonify({"code": 4, "msg": "未安装 pyautogui 库"}), 500
+    
+    image_name = ''
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        image_name = data.get('image_name', '')
+    if not image_name:
+        image_name = request.form.get('image_name', '') or request.args.get('image_name', '')
+    
+    if not image_name:
+        return jsonify({"code": 2, "msg": "缺少 image_name 字段"}), 400
+    
+    if not image_name.endswith('.png'):
+        image_name = image_name + '.png'
+    
+    image_path = get_image_path(image_name)
+    if not image_path:
+        return jsonify({"code": 3, "msg": f"未找到图片 {image_name}"}), 404
+    
+    try:
+        logging.info(f'正在搜索图片：{image_path}')
+        
+        location = pyautogui.locateOnScreen(image_path, confidence=0.7)
+        
+        if not location:
+            logging.info('降低置信度重试...')
+            location = pyautogui.locateOnScreen(image_path, confidence=0.6)
+        
+        if location:
+            center = pyautogui.center(location)
+            click_x, click_y = center
+            
+            logging.info(f'找到目标！坐标：({click_x}, {click_y})')
+            logging.info(f'区域大小：{location.width}x{location.height}')
+            
+            pyautogui.moveTo(click_x, click_y, duration=0.3)
+            pyautogui.click()
+            
+            logging.info('已点击!')
+            return jsonify({
+                "code": 0,
+                "msg": "点击成功",
+                "coordinates": {"x": click_x, "y": click_y}
+            }), 200
+        else:
+            logging.warning(f'未找到目标图片：{image_path}')
+            return jsonify({
+                "code": 1,
+                "msg": f"未找到目标图片 {image_name}"
+            }), 404
+            
+    except FileNotFoundError:
+        logging.error(f'找不到图片文件：{image_path}')
+        return jsonify({"code": 3, "msg": f"找不到图片文件 {image_name}"}), 404
+    except Exception as e:
+        logging.error(f'点击图片失败：\n{traceback.format_exc()}')
+        return jsonify({"code": 1, "msg": f"点击失败: {str(e)}"}), 500
+
+@app.route('/start', methods=['POST'])
+def start_click():
+    """点击开始按钮"""
+    return click_image_by_name('start.png')
+
+@app.route('/stop', methods=['POST'])
+def stop_click():
+    """点击停止按钮"""
+    return click_image_by_name('Stop.png')
+
+@app.route('/close', methods=['POST'])
+def close_click():
+    """点击关闭按钮"""
+    return click_image_by_name('Close.png')
+
+@app.route('/pause', methods=['POST'])
+def pause_click():
+    """点击暂停按钮"""
+    return click_image_by_name('Pause.png')
+
+@app.route('/stop_close', methods=['POST'])
+def stop_close_click():
+    """停止并关闭：先点击停止，等待4秒，再点击关闭"""
+    if not HAS_PYAUTOGUI:
+        return jsonify({"code": 4, "msg": "未安装 pyautogui 库"}), 500
+    
+    try:
+        logging.info('开始执行停止关闭流程')
+        
+        result1 = click_image_by_name('Stop.png')
+        if result1[1] != 200:
+            return result1
+        
+        logging.info('等待4秒...')
+        time.sleep(4)
+        
+        result2 = click_image_by_name('Close.png')
+        return result2
+        
+    except Exception as e:
+        logging.error(f'停止关闭失败：\n{traceback.format_exc()}')
+        return jsonify({"code": 1, "msg": f"停止关闭失败: {str(e)}"}), 500
+
+def click_image_by_name(image_name: str):
+    """通用图片点击函数"""
+    if not HAS_PYAUTOGUI:
+        return jsonify({"code": 4, "msg": "未安装 pyautogui 库"}), 500
+    
+    image_path = get_image_path(image_name)
+    if not image_path:
+        return jsonify({"code": 3, "msg": f"未找到图片 {image_name}"}), 404
+    
+    try:
+        logging.info(f'正在搜索图片：{image_path}')
+        
+        location = pyautogui.locateOnScreen(image_path, confidence=0.7)
+        
+        if not location:
+            logging.info('降低置信度重试...')
+            location = pyautogui.locateOnScreen(image_path, confidence=0.6)
+        
+        if location:
+            center = pyautogui.center(location)
+            click_x, click_y = center
+            
+            logging.info(f'找到目标！坐标：({click_x}, {click_y})')
+            logging.info(f'区域大小：{location.width}x{location.height}')
+            
+            pyautogui.moveTo(click_x, click_y, duration=0.3)
+            pyautogui.click()
+            
+            logging.info('已点击!')
+            return jsonify({
+                "code": 0,
+                "msg": f"{image_name} 点击成功",
+                "coordinates": {"x": click_x, "y": click_y}
+            }), 200
+        else:
+            logging.warning(f'未找到目标图片：{image_path}')
+            return jsonify({
+                "code": 1,
+                "msg": f"未找到目标图片 {image_name}"
+            }), 404
+            
+    except FileNotFoundError:
+        logging.error(f'找不到图片文件：{image_path}')
+        return jsonify({"code": 3, "msg": f"找不到图片文件 {image_name}"}), 404
+    except Exception as e:
+        logging.error(f'点击图片失败：\n{traceback.format_exc()}')
+        return jsonify({"code": 1, "msg": f"点击失败: {str(e)}"}), 500
+
 @app.route('/query_progress', methods=['POST'])
 def query_progress():
     """查询进度：截图并发送给 AI 分析"""
@@ -407,23 +591,7 @@ def query_progress():
             "msg": f"查询失败: {str(e)}"
         }), 500
 
-@app.route('/test', methods=['GET'])
-def test():
-    """测试接口：验证服务是否正常运行"""
-    try:
-        logging.info('收到测试请求')
-        return jsonify({
-            "code": 0,
-            "msg": "服务正常运行",
-            "timestamp": time.time(),
-            "service": "Webhook Bat Executor"
-        }), 200
-    except Exception as e:
-        logging.error('测试接口失败：\n%s', traceback.format_exc())
-        return jsonify({
-            "code": 1,
-            "msg": f"测试失败: {str(e)}"
-        }), 500
+
 
 
 class ServerManager:
@@ -521,15 +689,19 @@ class FRPConfigManager:
         self._log_queues = {}
 
     def get_frpc_path(self) -> str:
-        frp_cfg = self._config_ref.get('frp') or {}
-        return (frp_cfg.get('frpc_path') or '').strip()
-
-    def set_frpc_path(self, path: str):
-        if 'frp' not in self._config_ref:
-            self._config_ref['frp'] = {}
-        self._config_ref['frp']['frpc_path'] = path
-        if 'configs' not in self._config_ref['frp']:
-            self._config_ref['frp']['configs'] = {}
+        try:
+            if getattr(sys, 'frozen', False):
+                base_path = sys._MEIPASS
+            else:
+                base_path = os.path.dirname(os.path.abspath(__file__))
+            
+            builtin_path = os.path.join(base_path, 'frpc.exe')
+            if os.path.isfile(builtin_path):
+                return builtin_path
+        except Exception:
+            pass
+        
+        raise FileNotFoundError('未找到内置的 frpc.exe')
 
     def get_configs(self) -> dict:
         frp_cfg = self._config_ref.get('frp') or {}
@@ -661,172 +833,6 @@ class FRPConfigManager:
         return self._log_queues.get(name, queue.Queue())
 
 
-class TestConnectionThread(QThread):
-    """测试连接的线程"""
-    result_signal = pyqtSignal(str)
-
-    def __init__(self, url: str, key: str):
-        super().__init__()
-        self.url = url
-        self.key = key
-
-    def run(self):
-        try:
-            payload = {"key": self.key}
-            self.result_signal.emit(f"正在测试连接: {self.url}\n")
-            self.result_signal.emit(f"发送数据: {json.dumps(payload, ensure_ascii=False)}\n\n")
-
-            # 如果是FRP地址（不是127.0.0.1），先检查本地服务
-            if '127.0.0.1' not in self.url and 'localhost' not in self.url.lower():
-                self.result_signal.emit(f"检测到FRP地址，先检查本地服务...\n")
-                local_url = f'http://127.0.0.1:{get_listen_port()}/webhook'
-                if HAS_REQUESTS:
-                    try:
-                        check_response = requests.post(
-                            local_url,
-                            json=payload,
-                            headers={'Content-Type': 'application/json'},
-                            timeout=5,
-                            verify=False
-                        )
-                        self.result_signal.emit(f"✅ 本地服务正常（端口 {get_listen_port()}）\n")
-                        self.result_signal.emit(f"   状态码: {check_response.status_code}\n\n")
-                    except Exception as local_e:
-                        self.result_signal.emit(f"⚠️ 本地服务检查失败: {str(local_e)}\n")
-                        self.result_signal.emit(f"   请确认本地服务在端口 {get_listen_port()} 上运行\n\n")
-                else:
-                    self.result_signal.emit(f"⚠️ 无法检查本地服务（缺少 requests 库）\n\n")
-
-            if HAS_REQUESTS:
-                # 使用 requests 库
-                try:
-                    import urllib3
-                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # 禁用SSL警告
-                except ImportError:
-                    pass  # urllib3 不可用时忽略
-                
-                start_time = time.time()
-                try:
-                    # 禁用代理，直接连接
-                    session = requests.Session()
-                    session.trust_env = False  # 不信任环境变量中的代理设置
-                    
-                    response = session.post(
-                        self.url,
-                        json=payload,
-                        headers={'Content-Type': 'application/json'},
-                        timeout=(10, 60),  # (连接超时, 读取超时) - 增加到60秒
-                        verify=False,  # 如果是 HTTPS 但不信任证书
-                        allow_redirects=True,
-                        proxies={}  # 明确禁用代理
-                    )
-                    elapsed = time.time() - start_time
-
-                    self.result_signal.emit(f"✅ 连接成功！\n")
-                    self.result_signal.emit(f"状态码: {response.status_code}\n")
-                    self.result_signal.emit(f"响应时间: {elapsed:.2f} 秒\n")
-                    self.result_signal.emit(f"响应头: {dict(response.headers)}\n")
-                    self.result_signal.emit(f"响应内容: {response.text}\n")
-                    if response.status_code == 200:
-                        self.result_signal.emit(f"\n✅ 测试成功：webhook 已触发\n")
-                    else:
-                        self.result_signal.emit(f"\n⚠️ 警告：状态码不是 200\n")
-                except requests.exceptions.Timeout as e:
-                    self.result_signal.emit(f"\n❌ 连接超时\n")
-                    self.result_signal.emit(f"超时类型: {type(e).__name__}\n")
-                    self.result_signal.emit(f"错误详情: {str(e)}\n\n")
-                    
-                    # 检查是否是ReadTimeout（读取超时）
-                    if 'Read timeout' in str(e) or 'read timeout' in str(e).lower():
-                        self.result_signal.emit(f"⚠️ 这是读取超时（ReadTimeout），说明：\n")
-                        self.result_signal.emit(f"  - 连接已建立（FRP 连接正常）\n")
-                        self.result_signal.emit(f"  - 但服务器未在60秒内返回响应\n\n")
-                        self.result_signal.emit(f"可能原因：\n")
-                        self.result_signal.emit(f"  1. ⚠️ 本地端口配置错误！\n")
-                        self.result_signal.emit(f"     - 检查FRP配置中的'本地端口'是否为 {get_listen_port()}（webhook服务端口）\n")
-                        self.result_signal.emit(f"     - 当前配置可能是3389（RDP端口）或其他错误端口\n")
-                        self.result_signal.emit(f"  2. 本地webhook服务未启动或响应慢\n")
-                        self.result_signal.emit(f"  3. 本地服务处理请求时间过长\n")
-                        self.result_signal.emit(f"  4. 网络延迟导致响应超时\n\n")
-                        self.result_signal.emit(f"解决方案：\n")
-                        self.result_signal.emit(f"  1. 在FRP设置中，将'本地端口'改为 {get_listen_port()}\n")
-                        self.result_signal.emit(f"  2. 确认本地服务在端口 {get_listen_port()} 上运行\n")
-                        self.result_signal.emit(f"  3. 先用本地地址测试: http://127.0.0.1:{get_listen_port()}/webhook\n")
-                    else:
-                        self.result_signal.emit(f"可能原因：\n")
-                        self.result_signal.emit(f"  1. 服务器未启动或端口错误\n")
-                        self.result_signal.emit(f"  2. FRP 配置未启动或连接失败\n")
-                        self.result_signal.emit(f"  3. 防火墙阻止连接\n")
-                        self.result_signal.emit(f"  4. 网络不通或延迟过高（超过10秒连接超时）\n")
-                        self.result_signal.emit(f"  5. FRP 服务端网络不稳定\n")
-                except requests.exceptions.ConnectionError as e:
-                    self.result_signal.emit(f"\n❌ 连接失败\n")
-                    self.result_signal.emit(f"错误类型: {type(e).__name__}\n")
-                    self.result_signal.emit(f"错误详情: {str(e)}\n\n")
-                    # 提取更详细的错误信息
-                    if hasattr(e, 'args') and e.args:
-                        for arg in e.args:
-                            self.result_signal.emit(f"  错误参数: {arg}\n")
-                    self.result_signal.emit(f"\n可能原因：\n")
-                    self.result_signal.emit(f"  1. 无法解析域名或 IP 地址错误\n")
-                    self.result_signal.emit(f"  2. 目标端口未开放或被防火墙阻止\n")
-                    self.result_signal.emit(f"  3. FRP 服务端未运行或配置错误\n")
-                    self.result_signal.emit(f"  4. FRP 客户端未连接成功（检查FRP日志）\n")
-                    self.result_signal.emit(f"  5. 本地服务未启动（端口 {get_listen_port()}）\n")
-                    self.result_signal.emit(f"  6. 目标服务器拒绝连接\n")
-                    self.result_signal.emit(f"  7. 网络路由问题\n")
-                    self.result_signal.emit(f"\n调试建议：\n")
-                    self.result_signal.emit(f"  - 检查FRP客户端日志是否显示连接成功\n")
-                    self.result_signal.emit(f"  - 尝试在浏览器中访问: {self.url}\n")
-                    self.result_signal.emit(f"  - 检查防火墙是否允许该端口\n")
-                    self.result_signal.emit(f"  - 确认FRP服务端配置正确\n")
-                except requests.exceptions.RequestException as e:
-                    self.result_signal.emit(f"\n❌ 请求异常\n")
-                    self.result_signal.emit(f"错误类型: {type(e).__name__}\n")
-                    self.result_signal.emit(f"错误信息: {str(e)}\n")
-                    self.result_signal.emit(f"详细错误:\n{traceback.format_exc()}\n")
-            else:
-                # 使用 urllib（备用方案）
-                import urllib.request
-                import urllib.parse
-                start_time = time.time()
-                try:
-                    data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-                    req = urllib.request.Request(
-                        self.url,
-                        data=data,
-                        headers={'Content-Type': 'application/json'}
-                    )
-                    with urllib.request.urlopen(req, timeout=30) as response:
-                        elapsed = time.time() - start_time
-                        response_text = response.read().decode('utf-8')
-                        self.result_signal.emit(f"✅ 连接成功！\n")
-                        self.result_signal.emit(f"状态码: {response.getcode()}\n")
-                        self.result_signal.emit(f"响应时间: {elapsed:.2f} 秒\n")
-                        self.result_signal.emit(f"响应内容: {response_text}\n")
-                        if response.getcode() == 200:
-                            self.result_signal.emit(f"\n✅ 测试成功：webhook 已触发\n")
-                        else:
-                            self.result_signal.emit(f"\n⚠️ 警告：状态码不是 200\n")
-                except urllib.error.URLError as e:
-                    self.result_signal.emit(f"\n❌ 连接失败\n")
-                    self.result_signal.emit(f"错误详情：{str(e)}\n\n")
-                    self.result_signal.emit(f"可能原因：\n")
-                    self.result_signal.emit(f"  1. 无法解析域名或 IP 地址错误\n")
-                    self.result_signal.emit(f"  2. 目标端口未开放或被防火墙阻止\n")
-                    self.result_signal.emit(f"  3. FRP 服务端未运行或配置错误\n")
-                    self.result_signal.emit(f"  4. FRP 客户端未连接成功\n")
-                    self.result_signal.emit(f"  5. 本地服务未启动（端口 {get_listen_port()}）\n")
-                except Exception as e:
-                    self.result_signal.emit(f"\n❌ 未知错误\n")
-                    self.result_signal.emit(f"错误信息: {str(e)}\n")
-                    self.result_signal.emit(f"详细错误: {traceback.format_exc()}\n")
-
-        except Exception as e:
-            self.result_signal.emit(f"\n❌ 未知错误\n")
-            self.result_signal.emit(f"错误信息: {str(e)}\n")
-            self.result_signal.emit(f"详细错误: {traceback.format_exc()}\n")
-
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -834,7 +840,6 @@ class MainWindow(QMainWindow):
         self.server = ServerManager()  # 自动启动服务
         self.frp_manager = FRPConfigManager(config)
         self.frp_window = None
-        self.test_window = None
         self.curl_window = None
         self.init_ui()
 
@@ -897,18 +902,15 @@ class MainWindow(QMainWindow):
         ai_group.setLayout(ai_layout)
         layout.addWidget(ai_group)
 
-        # 测试连接按钮
-        test_group = QGroupBox('测试与工具')
-        test_layout = QHBoxLayout()
-        test_btn = QPushButton('测试连接')
-        test_btn.clicked.connect(self.open_test_window)
+        # 生成 curl 命令
+        curl_group = QGroupBox('工具')
+        curl_layout = QHBoxLayout()
         curl_btn = QPushButton('生成 curl 命令')
         curl_btn.clicked.connect(self.generate_curl)
-        test_layout.addWidget(test_btn)
-        test_layout.addWidget(curl_btn)
-        test_layout.addStretch()
-        test_group.setLayout(test_layout)
-        layout.addWidget(test_group)
+        curl_layout.addWidget(curl_btn)
+        curl_layout.addStretch()
+        curl_group.setLayout(curl_layout)
+        layout.addWidget(curl_group)
 
         layout.addStretch()
 
@@ -962,14 +964,6 @@ class MainWindow(QMainWindow):
         self.ai_window.raise_()
         self.ai_window.activateWindow()
 
-    def open_test_window(self):
-        if self.test_window is None or not self.test_window.isVisible():
-            self.test_window = TestConnectionWindow(self, self.frp_manager)
-            self.test_window.setGeometry(self.geometry())  # 与主窗口同样大小
-        self.test_window.show()
-        self.test_window.raise_()
-        self.test_window.activateWindow()
-
     def generate_curl(self):
         """打开 curl 生成窗口"""
         if self.curl_window is None or not self.curl_window.isVisible():
@@ -985,109 +979,6 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
-class TestConnectionWindow(QMainWindow):
-    """测试连接窗口"""
-    def __init__(self, parent, frp_manager):
-        super().__init__(parent)
-        self.frp_manager = frp_manager
-        self.test_thread = None
-        self.init_ui()
-
-    def init_ui(self):
-        self.setWindowTitle('测试连接')
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-
-        # 输入区域
-        input_group = QGroupBox('测试参数')
-        input_layout = QVBoxLayout()
-
-        # 文件名
-        key_layout = QHBoxLayout()
-        key_layout.addWidget(QLabel('文件名（不含扩展名）：'))
-        self.key_edit = QLineEdit()
-        self.key_edit.setPlaceholderText('输入文件名，支持中文、英文、数字')
-        key_layout.addWidget(self.key_edit)
-        input_layout.addLayout(key_layout)
-
-        # URL
-        url_layout = QHBoxLayout()
-        url_layout.addWidget(QLabel('测试 URL：'))
-        self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText('http://127.0.0.1:8888/webhook 或 http://frps地址:端口/webhook')
-        url_layout.addWidget(self.url_edit)
-        input_layout.addLayout(url_layout)
-
-        # 快速选择按钮
-        quick_layout = QHBoxLayout()
-        local_btn = QPushButton('使用本地地址')
-        local_btn.clicked.connect(lambda: self.url_edit.setText(f'http://127.0.0.1:{get_listen_port()}/webhook'))
-        frp_btn = QPushButton('使用第一个运行中的 FRP')
-        frp_btn.clicked.connect(self.use_first_frp)
-        quick_layout.addWidget(local_btn)
-        quick_layout.addWidget(frp_btn)
-        quick_layout.addStretch()
-        input_layout.addLayout(quick_layout)
-
-        test_btn = QPushButton('开始测试')
-        test_btn.clicked.connect(self.start_test)
-        input_layout.addWidget(test_btn)
-
-        input_group.setLayout(input_layout)
-        layout.addWidget(input_group)
-
-        # 结果显示
-        result_group = QGroupBox('测试结果')
-        result_layout = QVBoxLayout()
-        self.result_text = QTextEdit()
-        self.result_text.setReadOnly(True)
-        result_layout.addWidget(self.result_text)
-        result_group.setLayout(result_layout)
-        layout.addWidget(result_group)
-
-    def use_first_frp(self):
-        """使用第一个运行中的 FRP 配置"""
-        configs = self.frp_manager.get_configs()
-        for cfg_name, cfg in configs.items():
-            if self.frp_manager.is_config_running(cfg_name):
-                server_addr = (cfg.get('server_addr') or '').strip()
-                try:
-                    remote_port = int(cfg.get('remote_port') or 0)
-                except Exception:
-                    remote_port = 0
-                if server_addr and remote_port > 0:
-                    self.url_edit.setText(f'http://{server_addr}:{remote_port}/webhook')
-                    QMessageBox.information(self, '提示', f'已使用 FRP 配置: {cfg_name}')
-                    return
-        QMessageBox.warning(self, '提示', '没有运行中的 FRP 配置')
-
-    def start_test(self):
-        key = self.key_edit.text().strip()
-        if not key:
-            QMessageBox.warning(self, '提示', '请输入文件名（关键字）')
-            return
-
-        url = self.url_edit.text().strip()
-        if not url:
-            QMessageBox.warning(self, '提示', '请填写测试 URL')
-            return
-
-        self.result_text.clear()
-        self.result_text.append(f"开始测试连接...\n")
-        self.result_text.append(f"URL: {url}\n")
-        self.result_text.append(f"文件名: {key}\n")
-        self.result_text.append("-" * 50 + "\n")
-
-        # 启动测试线程
-        if self.test_thread and self.test_thread.isRunning():
-            QMessageBox.warning(self, '提示', '测试正在进行中，请稍候...')
-            return
-
-        self.test_thread = TestConnectionThread(url, key)
-        self.test_thread.result_signal.connect(self.result_text.append)
-        self.test_thread.start()
-
 
 class FRPSettingsWindow(QMainWindow):
     def __init__(self, parent, frp_manager):
@@ -1100,17 +991,6 @@ class FRPSettingsWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-
-        # frpc 路径
-        path_group = QGroupBox('frpc.exe 路径')
-        path_layout = QHBoxLayout()
-        self.frpc_path_edit = QLineEdit(self.frp_manager.get_frpc_path())
-        path_browse_btn = QPushButton('浏览...')
-        path_browse_btn.clicked.connect(self.browse_frpc)
-        path_layout.addWidget(self.frpc_path_edit)
-        path_layout.addWidget(path_browse_btn)
-        path_group.setLayout(path_layout)
-        layout.addWidget(path_group)
 
         # 配置列表
         config_group = QGroupBox('FRP 配置列表')
@@ -1159,13 +1039,6 @@ class FRPSettingsWindow(QMainWindow):
         self.log_timer.start(500)
 
         self.refresh_list()
-
-    def browse_frpc(self):
-        path, _ = QFileDialog.getOpenFileName(self, '选择 frpc.exe', '', 'frpc.exe;;可执行文件 (*.exe);;所有文件 (*.*)')
-        if path:
-            self.frpc_path_edit.setText(path)
-            self.frp_manager.set_frpc_path(path)
-            save_config(config)
 
     def refresh_list(self):
         self.config_list.clear()

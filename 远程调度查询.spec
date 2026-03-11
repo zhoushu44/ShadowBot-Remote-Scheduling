@@ -4,7 +4,7 @@ a = Analysis(
     ['mian.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('frpc.exe', '.'), ('bat/*.png', 'bat')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
